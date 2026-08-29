@@ -304,20 +304,22 @@ function CameraFollow({
   return null;
 }
 
-// How far (in world mm) the reel-in anchor sits from the lure's own
-// position at the moment it's set, along SCREEN_RIGHT_DIRECTION. Fixed —
-// deliberately NOT a fraction of tankSpan — because REEL_SPEED_MMS (below)
-// is also a fixed mm/s figure: tying this to tankSpan meant a small lure
-// (tankSpan clamped to its 170mm floor) got a leg barely 76.5mm long, which
-// REEL_SPEED_MMS covers in ~0.35s — "Reel in" would arrive and freeze
-// almost the instant it was pressed, for as long as the button stayed held.
-// This value instead targets a leg that takes noticeably longer than a
+// Bounds for the Simulate tab's "Line length" slider (useSimulationStore's
+// lineLengthMm) — how far, in world mm, one "Reel in" leg travels before a
+// fresh anchor is set. Deliberately NOT a fraction of tankSpan — because
+// REEL_SPEED_MMS (below) is also a fixed mm/s figure: tying this to
+// tankSpan meant a small lure (tankSpan clamped to its 170mm floor) got a
+// leg barely 76.5mm long, which REEL_SPEED_MMS covers in ~0.35s — "Reel in"
+// would arrive and freeze almost the instant it was pressed, for as long as
+// the button stayed held. The slider's own default (300, see
+// useSimulationStore.ts) targets a leg that takes noticeably longer than a
 // single frame to close at REEL_SPEED_MMS — a deliberate, visible haul —
-// consistently across every lure size, not just larger ones (which
-// happened to get a longer leg from a bigger tankSpan more or less by
-// accident). See LureRig's reelAnchorRef for how a held retrieve chains
-// many of these legs back to back instead of freezing after the first one.
-const REEL_LEG_HORIZONTAL_OFFSET_MM = 300;
+// consistently across every lure size; the min/max let the user dial that
+// up into a long, slow pull or down into a quick, twitchy one. See
+// LureRig's reelAnchorRef for how a held retrieve chains many of these legs
+// back to back instead of freezing after the first one.
+export const LINE_LENGTH_MIN_MM = 100;
+export const LINE_LENGTH_MAX_MM = 700;
 
 // Standing in for an angler positioned to one side — always screen-right of
 // wherever the lure currently is (originX/originZ), not a fixed tank
@@ -333,12 +335,17 @@ const REEL_LEG_HORIZONTAL_OFFSET_MM = 300;
 // starts, and again every time the lure nearly reaches the current leg's
 // anchor while still held, so a long hold chains one screen-right leg after
 // another instead of freezing after the first.
-function getAnglerAnchor(originX: number, originZ: number, waterSurfaceY: number, tankSpan: number): THREE.Vector3 {
-  const offset = REEL_LEG_HORIZONTAL_OFFSET_MM;
+function getAnglerAnchor(
+  originX: number,
+  originZ: number,
+  waterSurfaceY: number,
+  tankSpan: number,
+  legLengthMm: number,
+): THREE.Vector3 {
   return new THREE.Vector3(
-    originX + SCREEN_RIGHT_DIRECTION.x * offset,
+    originX + SCREEN_RIGHT_DIRECTION.x * legLengthMm,
     waterSurfaceY + tankSpan * 0.15,
-    originZ + SCREEN_RIGHT_DIRECTION.z * offset,
+    originZ + SCREEN_RIGHT_DIRECTION.z * legLengthMm,
   );
 }
 
@@ -513,6 +520,14 @@ function LureRig({
   const bodyOffset = useSceneStore((s) => s.bodyOffset);
   const features = useFeatureStore((s) => s.features);
   const lineTieFeatures = features.filter((f) => f.type === 'lineTie');
+  const speed = useSimulationStore((s) => s.speed);
+  // The Simulate tab's "Line length" slider — how far one "Reel in" leg
+  // travels before LureRig sets a fresh anchor (see reelAnchorRef below).
+  // Read here (not inside useFrame) so it participates in the same
+  // per-render closure `speed` already does — react-three-fiber's useFrame
+  // always calls the latest render's callback, so a mid-hold slider drag
+  // takes effect on the very next frame, same as adjusting Speed does.
+  const lineLengthMm = useSimulationStore((s) => s.lineLengthMm);
   // The reel-in target: re-pointed once, at the moment "Reel in" starts
   // (see the reelingRef edge-detection at the top of useFrame below), always
   // screen-right of wherever the lure was AT THAT MOMENT — never recomputed
@@ -523,7 +538,7 @@ function LureRig({
   // fishing line has something sensible to point at before "Reel in" has
   // ever been pressed.
   const reelAnchorRef = useRef<THREE.Vector3>(
-    getAnglerAnchor(dragState.current.x, dragState.current.z, waterSurfaceY, tankSpan),
+    getAnglerAnchor(dragState.current.x, dragState.current.z, waterSurfaceY, tankSpan, lineLengthMm),
   );
   const wasReelingRef = useRef(false);
   // Only the first lip matters for the dive/wobble effect — a lure with a
@@ -531,7 +546,6 @@ function LureRig({
   // double the same effect rather than mean anything new.
   const lipFeature = features.find((f) => f.type === 'lip');
   const mainRetrieveAction = useProfileStore((s) => s.retrieveAction);
-  const speed = useSimulationStore((s) => s.speed);
   // Shared by LureBody (per-segment spinning tail) and FeatureMarkers
   // (spinner-blade spin) — one object so both effects read the exact same
   // reeling state and effective speed every frame.
@@ -540,9 +554,9 @@ function LureRig({
     [reelingRef, speed],
   );
   // How far (horizontally) one reel-in leg starts — used to scale when the
-  // vertical "rise" boost kicks in. Same fixed constant getAnglerAnchor
-  // itself uses, since that's exactly what this distance is by definition.
-  const reelCurveSpanMm = REEL_LEG_HORIZONTAL_OFFSET_MM;
+  // vertical "rise" boost kicks in. Same value getAnglerAnchor itself uses,
+  // since that's exactly what this distance is by definition.
+  const reelCurveSpanMm = lineLengthMm;
 
   useFrame((_, rawDelta) => {
     const st = dragState.current;
@@ -552,21 +566,21 @@ function LureRig({
     // THIS MOMENT — in two cases: right as "Reel in" starts being held
     // (false→true edge), and again whenever the lure has nearly closed the
     // gap to its CURRENT leg's anchor while still held. Without that second
-    // case, a single leg (REEL_LEG_HORIZONTAL_OFFSET_MM at REEL_SPEED_MMS)
-    // gets fully closed in about a second, after which the whole
-    // `totalDist > 0.5` block below stops running — position, orientation,
-    // wobble, roll, all of it — for as long as the button stays held after
-    // that, reading as "arrives, then freezes." Chaining a fresh leg the
-    // moment the old one is nearly done keeps the retrieve moving
-    // continuously for the whole hold instead. Deliberately NOT recomputed
-    // every single frame while held (only at these two trigger points): see
-    // getAnglerAnchor's comment for why that would make the target "flee"
-    // at the same rate the lure closes the gap and never actually arrive.
+    // case, a single leg (lineLengthMm at REEL_SPEED_MMS) gets fully closed
+    // in about a second, after which the whole `totalDist > 0.5` block
+    // below stops running — position, orientation, wobble, roll, all of it
+    // — for as long as the button stays held after that, reading as
+    // "arrives, then freezes." Chaining a fresh leg the moment the old one
+    // is nearly done keeps the retrieve moving continuously for the whole
+    // hold instead. Deliberately NOT recomputed every single frame while
+    // held (only at these two trigger points): see getAnglerAnchor's
+    // comment for why that would make the target "flee" at the same rate
+    // the lure closes the gap and never actually arrive.
     if (reelingRef.current) {
       const anchor = reelAnchorRef.current;
       const distToAnchor = Math.hypot(anchor.x - st.x, anchor.y - st.y, anchor.z - st.z);
       if (!wasReelingRef.current || distToAnchor <= REEL_LEG_REFRESH_DISTANCE_MM) {
-        reelAnchorRef.current = getAnglerAnchor(st.x, st.z, waterSurfaceY, tankSpan);
+        reelAnchorRef.current = getAnglerAnchor(st.x, st.z, waterSurfaceY, tankSpan, lineLengthMm);
       }
     }
     wasReelingRef.current = reelingRef.current;
@@ -878,6 +892,8 @@ export default function SimulateView() {
   const setWaterType = useSimulationStore((s) => s.setWaterType);
   const speed = useSimulationStore((s) => s.speed);
   const setSpeed = useSimulationStore((s) => s.setSpeed);
+  const lineLengthMm = useSimulationStore((s) => s.lineLengthMm);
+  const setLineLengthMm = useSimulationStore((s) => s.setLineLengthMm);
   const dimensions = useSceneStore((s) => s.dimensions);
   const length = dimensions.l;
   const orbitRef = useRef<OrbitControlsImpl>(null);
@@ -969,6 +985,25 @@ export default function SimulateView() {
         <WeightBadge water={waterType} style={{ position: 'static', transform: 'none' }} />
 
         <ReelInButton reelingRef={reelingRef} playback={playback} />
+
+        {/* How far one "Reel in" haul travels before the next one picks up
+            — see getAnglerAnchor's own comment for why this can't just be
+            "how long you hold the button": a longer line length reads as a
+            slower, more deliberate pull, a shorter one as quick and twitchy,
+            independently of how long the button is actually held. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="How far one Reel in haul travels before the next one starts">
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Line length</span>
+          <input
+            type="range"
+            min={LINE_LENGTH_MIN_MM}
+            max={LINE_LENGTH_MAX_MM}
+            step={25}
+            value={lineLengthMm}
+            onChange={(e) => setLineLengthMm(parseFloat(e.target.value))}
+            style={{ width: 100 }}
+          />
+          <span style={{ fontSize: 12, color: 'var(--text-dim)', width: 44 }}>{lineLengthMm} mm</span>
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Speed</span>
