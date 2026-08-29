@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type TabId = 'library' | 'editor' | 'simulate' | 'export';
+export type TabId = 'library' | 'editor' | 'paint' | 'simulate' | 'export';
 
 interface AppState {
   activeTab: TabId;

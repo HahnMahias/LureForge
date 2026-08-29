@@ -6,6 +6,7 @@ const ADD_OPTIONS: { type: FeatureType; label: string }[] = [
   { type: 'eyes', label: 'Eyes' },
   { type: 'lineTie', label: 'Line tie' },
   { type: 'hookHanger', label: 'Hook hanger' },
+  { type: 'hookTie', label: 'Hook tie' },
   { type: 'ballast', label: 'Ballast' },
   { type: 'wireFrame', label: 'Wire frame' },
   { type: 'fin', label: 'Fin' },

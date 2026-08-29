@@ -3,6 +3,7 @@ import type { NoseType, CurveKey, FillType, RetrieveAction } from '../store/useP
 import type { ExtraSegment } from '../store/useSegmentsStore';
 import type { Feature } from '../store/useFeatureStore';
 import type { BodyMaterial } from './materials';
+import type { PaintPattern } from '../store/usePaintStore';
 
 const STORAGE_KEY = 'lureworks.projects.v1';
 
@@ -25,6 +26,15 @@ export interface ProjectData {
   };
   segments: ExtraSegment[];
   features: Feature[];
+  // Optional — undefined for projects saved before the Paint tab existed;
+  // useLibraryStore.ts's applyProjectData falls back to usePaintStore's own
+  // defaults for those, same pattern as the profile fields above.
+  paint?: {
+    pattern: PaintPattern;
+    backColor: string;
+    bellyColor: string;
+    accentColor: string;
+  };
 }
 
 export interface SavedProject {

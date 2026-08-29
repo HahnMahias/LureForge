@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { useProfileStore } from './useProfileStore';
 import { useSegmentsStore } from './useSegmentsStore';
 import { useFeatureStore } from './useFeatureStore';
+import { usePaintStore } from './usePaintStore';
 import {
   listProjects,
   saveProjectToStorage,
@@ -14,6 +15,7 @@ function gatherProjectData(): ProjectData {
   const profile = useProfileStore.getState();
   const segments = useSegmentsStore.getState();
   const features = useFeatureStore.getState();
+  const paint = usePaintStore.getState();
   return {
     profile: {
       length: profile.length,
@@ -28,6 +30,12 @@ function gatherProjectData(): ProjectData {
     },
     segments: segments.segments,
     features: features.features,
+    paint: {
+      pattern: paint.pattern,
+      backColor: paint.backColor,
+      bellyColor: paint.bellyColor,
+      accentColor: paint.accentColor,
+    },
   };
 }
 
@@ -47,6 +55,17 @@ function applyProjectData(data: ProjectData) {
   });
   useSegmentsStore.setState({ segments: data.segments, activeId: null });
   useFeatureStore.setState({ features: data.features, selectedId: null });
+  // Projects saved before the Paint tab existed have no `paint` field at
+  // all — fall back to usePaintStore's own defaults rather than leaving
+  // whatever pattern/colors happened to be active from the previously
+  // loaded project bleeding into this one.
+  const defaults = usePaintStore.getInitialState();
+  usePaintStore.setState({
+    pattern: data.paint?.pattern ?? defaults.pattern,
+    backColor: data.paint?.backColor ?? defaults.backColor,
+    bellyColor: data.paint?.bellyColor ?? defaults.bellyColor,
+    accentColor: data.paint?.accentColor ?? defaults.accentColor,
+  });
 }
 
 interface LibraryState {

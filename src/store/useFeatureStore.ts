@@ -17,12 +17,19 @@ export type FeatureType =
   | 'scales'
   | 'lip'
   | 'spinnerBlade'
-  | 'skirt';
+  | 'skirt'
+  | 'hookTie';
 export type LineTieStyle = 'ring' | 'staple' | 'screwEye';
 export type LipShape = 'round' | 'square' | 'coffin';
 export type BladeShape = 'colorado' | 'willow' | 'indiana';
 export type DecalStyle = 'flat' | 'ramp';
 export type DecalFill = 'rounded' | 'engraved';
+// hookHanger (existing) is just the metal eyelet a hook hangs FROM — this is
+// the hook itself. 'single'/'treble' share utils/hookSizes.ts's two size
+// tables; 'dressedTreble' is a treble plus a trailing feather/marabou
+// bundle (dressingColor), not a separate hook shape.
+export type HookStyle = 'single' | 'treble' | 'dressedTreble';
+export type HookFinish = 'bronze' | 'blackNickel' | 'nickel' | 'red';
 
 export interface Position3D {
   x: number;
@@ -91,6 +98,23 @@ export interface Feature {
   // Skirt-only properties (a bundle of trailing strands from `position`).
   skirtColor?: string;
   skirtLengthMm?: number;
+  // Eyes-only properties. Each eye renders as an iris sphere (eyeColor)
+  // plus a smaller pupil sphere (pupilColor) offset toward the outer
+  // face — see FeatureMarkers.tsx's EyesMarker. eyeSizeMm overrides the
+  // default girth-scaled iris diameter when set.
+  eyeColor?: string;
+  pupilColor?: string;
+  eyeSizeMm?: number;
+  // Hook-tie-only properties. hookSizeLabel is one of the labels from
+  // utils/hookSizes.ts's TREBLE_HOOK_SIZES/SINGLE_HOOK_SIZES (whichever
+  // table hookStyle selects) — kept as a label rather than raw mm so the
+  // 3D geometry and the size-picker dropdown always read the exact same
+  // spec off that one shared table. dressingColor only applies to
+  // hookStyle === 'dressedTreble'.
+  hookStyle?: HookStyle;
+  hookSizeLabel?: string;
+  hookFinish?: HookFinish;
+  dressingColor?: string;
 }
 
 const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -105,6 +129,7 @@ const FEATURE_LABELS: Record<FeatureType, string> = {
   lip: 'Lip',
   spinnerBlade: 'Spinner blade',
   skirt: 'Skirt',
+  hookTie: 'Hook tie',
 };
 
 function defaultPosition(type: FeatureType, existing: Feature[]): Position3D {
@@ -136,6 +161,14 @@ function defaultPosition(type: FeatureType, existing: Feature[]): Position3D {
       return { x: length * 0.85, y: girth * 0.6, z: 0 }; // trailing, above the body like a wire-arm blade
     case 'skirt':
       return { x: length * 0.95, y: 0, z: 0 }; // trails straight off the tail
+    case 'hookTie': {
+      // Same spacing logic as hookHanger above — a hook tie hangs at the
+      // belly just like a hanger does, just with an actual hook modeled on
+      // it instead of a bare eyelet.
+      const count = existing.filter((f) => f.type === 'hookTie').length;
+      const x = count === 0 ? length / 3 : count === 1 ? (length * 2) / 3 : length / 2;
+      return { x, y: -girth * 0.3, z: 0 };
+    }
   }
 }
 
@@ -220,6 +253,15 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
         ? { rotation: { x: 0, y: 0, z: 0 }, bladeShape: 'colorado' as BladeShape, bladeSizeMm: 16 }
         : {}),
       ...(type === 'skirt' ? { skirtColor: '#c8342f', skirtLengthMm: 40 } : {}),
+      ...(type === 'eyes' ? { eyeColor: '#f5c518', pupilColor: '#111111' } : {}),
+      ...(type === 'hookTie'
+        ? {
+            hookStyle: 'treble' as HookStyle,
+            hookSizeLabel: '4',
+            hookFinish: 'bronze' as HookFinish,
+            dressingColor: '#c8342f',
+          }
+        : {}),
     };
     set({ features: [...features, feature], selectedId: feature.id });
   },

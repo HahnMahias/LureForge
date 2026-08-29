@@ -6,11 +6,13 @@ import { useProfileStore } from '../store/useProfileStore';
 import { useSegmentsStore } from '../store/useSegmentsStore';
 import { useSceneStore } from '../store/useSceneStore';
 import { useFeatureStore, type Feature } from '../store/useFeatureStore';
+import { usePaintStore } from '../store/usePaintStore';
 import { buildLureGeometry } from '../utils/generateLureMesh';
 import { computeMeshVolumeAndCentroid } from '../utils/meshVolume';
 import { computeFillAwareVolumeMm3, computeBodyWeightG, type BodyMassPart } from '../utils/physics';
 import { computeVolumeCorrection } from '../utils/buoyancy';
 import { createScaleTexture } from '../utils/scaleTexture';
+import { createPaintTexture } from '../utils/paintTexture';
 import { BODY_MATERIAL_DENSITY_G_CM3 } from '../utils/materials';
 import { spinAngularVelocityRadPerS } from '../utils/retrieveEffects';
 
@@ -148,6 +150,25 @@ export default function LureBody({
   const hasFeatures = features.length > 0;
   const scalesFeatures = features.filter((f) => f.type === 'scales' && f.visible);
 
+  // The Paint tab's own color/pattern choices, rendered as a texture on the
+  // body's existing UV layout (u = length, v = belly→back→belly — see
+  // paintTexture.ts's own header comment) rather than a flat material color,
+  // so the body actually shows the countershading/bands/spots the pattern
+  // implies instead of just changing a single flat tint.
+  const paintPattern = usePaintStore((s) => s.pattern);
+  const paintBackColor = usePaintStore((s) => s.backColor);
+  const paintBellyColor = usePaintStore((s) => s.bellyColor);
+  const paintAccentColor = usePaintStore((s) => s.accentColor);
+  const paintTexture = useMemo(
+    () =>
+      createPaintTexture(paintPattern, {
+        backColor: paintBackColor,
+        bellyColor: paintBellyColor,
+        accentColor: paintAccentColor,
+      }),
+    [paintPattern, paintBackColor, paintBellyColor, paintAccentColor],
+  );
+
   const mainResult = useMemo(
     () => buildLureGeometry(curves, length, girth, noseType, symmetric),
     [curves, length, girth, noseType, symmetric],
@@ -266,9 +287,14 @@ export default function LureBody({
   ]);
 
   const showFeatureTint = hasFeatures && !opaque;
+  // White (rather than the old flat #c9b278) lets the paint texture's own
+  // colors show through unmodified — meshStandardMaterial's color always
+  // multiplies its map, so anything but white would re-tint the paint job.
+  // The feature-tint blue still applies on top the same way it always did.
   const material = (
     <meshStandardMaterial
-      color={showFeatureTint ? '#3d8bd4' : '#c9b278'}
+      map={paintTexture}
+      color={showFeatureTint ? '#3d8bd4' : '#ffffff'}
       roughness={showFeatureTint ? 0.15 : 0.85}
       metalness={0.05}
       side={THREE.DoubleSide}

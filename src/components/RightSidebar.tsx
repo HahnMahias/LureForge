@@ -6,12 +6,15 @@ import {
   type DecalFill,
   type LipShape,
   type BladeShape,
+  type HookStyle,
+  type HookFinish,
 } from '../store/useFeatureStore';
 import { useProfileStore } from '../store/useProfileStore';
 import type { BallastShape } from '../utils/meshVolume';
 import type { MetalType } from '../utils/materials';
 import { WIRE_FRAME_DEFS, WIRE_FRAME_STYLES, type WireFrameStyle } from '../data/wireFrameDefs';
 import { DECAL_PATTERNS, DECAL_PRESETS, type DecalPattern } from '../data/decalPresets';
+import { hookSizesForStyle, HOOK_FINISH_COLOR } from '../utils/hookSizes';
 import FinOutlineEditor from './FinOutlineEditor';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -26,6 +29,7 @@ const TYPE_LABELS: Record<string, string> = {
   lip: 'Lip',
   spinnerBlade: 'Spinner blade',
   skirt: 'Skirt',
+  hookTie: 'Hook tie',
 };
 
 const SHAPES: BallastShape[] = ['sphere', 'box', 'cylinder'];
@@ -47,6 +51,19 @@ const LIP_SHAPES: LipShape[] = ['round', 'square', 'coffin'];
 const LIP_SHAPE_LABELS: Record<LipShape, string> = { round: 'Round', square: 'Square', coffin: 'Coffin' };
 const BLADE_SHAPES: BladeShape[] = ['colorado', 'willow', 'indiana'];
 const BLADE_SHAPE_LABELS: Record<BladeShape, string> = { colorado: 'Colorado', willow: 'Willow', indiana: 'Indiana' };
+const HOOK_STYLES: HookStyle[] = ['single', 'treble', 'dressedTreble'];
+const HOOK_STYLE_LABELS: Record<HookStyle, string> = {
+  single: 'Single',
+  treble: 'Treble',
+  dressedTreble: 'Dressed treble',
+};
+const HOOK_FINISHES: HookFinish[] = ['bronze', 'blackNickel', 'nickel', 'red'];
+const HOOK_FINISH_LABELS: Record<HookFinish, string> = {
+  bronze: 'Bronze',
+  blackNickel: 'Black nickel',
+  nickel: 'Nickel',
+  red: 'Red',
+};
 const SKIRT_COLOR_PRESETS: { value: string; label: string }[] = [
   { value: '#c8342f', label: 'Red' },
   { value: '#1c1c1e', label: 'Black' },
@@ -687,6 +704,106 @@ export default function RightSidebar() {
                     step={1}
                     onChange={(skirtLengthMm) => updateFeature(selected.id, { skirtLengthMm })}
                   />
+                </>
+              )}
+
+              {selected.type === 'hookTie' && (
+                <>
+                  <div>
+                    <SectionLabel>Style</SectionLabel>
+                    <ChoiceRow
+                      options={HOOK_STYLES}
+                      value={selected.hookStyle ?? 'treble'}
+                      labels={HOOK_STYLE_LABELS}
+                      onChange={(hookStyle) => {
+                        const sizes = hookSizesForStyle(hookStyle);
+                        updateFeature(selected.id, {
+                          hookStyle,
+                          hookSizeLabel: sizes[Math.floor(sizes.length / 2)].label,
+                        });
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <SectionLabel>Size</SectionLabel>
+                    {(() => {
+                      const sizeOptions = hookSizesForStyle(selected.hookStyle ?? 'treble');
+                      const currentLabel =
+                        selected.hookSizeLabel ?? sizeOptions[Math.floor(sizeOptions.length / 2)].label;
+                      return (
+                        <select
+                          value={currentLabel}
+                          onChange={(e) => updateFeature(selected.id, { hookSizeLabel: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            background: 'var(--bg-panel-raised)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 5,
+                            color: 'var(--text-primary)',
+                            fontSize: 13,
+                          }}
+                        >
+                          {sizeOptions.map((size) => (
+                            <option key={size.label} value={size.label}>
+                              {size.label} — {size.lengthMm.toFixed(1)}×{size.gapMm.toFixed(1)} mm
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
+                  </div>
+
+                  <div>
+                    <SectionLabel>Finish</SectionLabel>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {HOOK_FINISHES.map((finish) => {
+                        const active = (selected.hookFinish ?? 'bronze') === finish;
+                        return (
+                          <button
+                            key={finish}
+                            title={HOOK_FINISH_LABELS[finish]}
+                            onClick={() => updateFeature(selected.id, { hookFinish: finish })}
+                            style={{
+                              width: 26,
+                              height: 26,
+                              borderRadius: '50%',
+                              background: HOOK_FINISH_COLOR[finish],
+                              border: '2px solid ' + (active ? 'var(--accent)' : 'var(--border-subtle)'),
+                              cursor: 'pointer',
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {selected.hookStyle === 'dressedTreble' && (
+                    <div>
+                      <SectionLabel>Dressing color</SectionLabel>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {SKIRT_COLOR_PRESETS.map((preset) => {
+                          const active = (selected.dressingColor ?? '#c8342f') === preset.value;
+                          return (
+                            <button
+                              key={preset.value}
+                              title={preset.label}
+                              onClick={() => updateFeature(selected.id, { dressingColor: preset.value })}
+                              style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: '50%',
+                                background: preset.value,
+                                border: '2px solid ' + (active ? 'var(--accent)' : 'var(--border-subtle)'),
+                                cursor: 'pointer',
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </>

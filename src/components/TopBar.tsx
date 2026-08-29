@@ -6,6 +6,7 @@ import { captureThumbnail } from '../utils/captureThumbnail';
 const TABS: { id: TabId; label: string }[] = [
   { id: 'library', label: 'Library' },
   { id: 'editor', label: 'Editor' },
+  { id: 'paint', label: 'Paint' },
   { id: 'simulate', label: 'Simulate' },
   { id: 'export', label: 'Export' },
 ];

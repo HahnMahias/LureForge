@@ -12,6 +12,8 @@ import { sampleClosedCurve } from '../utils/curveMath';
 import { computeSurfacePlacement } from '../utils/surfacePlacement';
 import type { LureCurves } from '../utils/generateLureMesh';
 import { spinAngularVelocityRadPerS } from '../utils/retrieveEffects';
+import { hookSizesForStyle, HOOK_FINISH_COLOR } from '../utils/hookSizes';
+import { buildHookTineGeometry } from '../utils/hookGeometry';
 
 const METAL_COLOR: Record<MetalType, string> = {
   lead: '#5b5d63',
@@ -23,21 +25,37 @@ function toWorld(pos: { x: number; y: number; z: number }, offset: { x: number; 
   return [pos.x - offset.x, pos.y + offset.y, pos.z] as [number, number, number];
 }
 
+/**
+ * Each eye is two nested spheres, not one flat-black bead: a larger iris
+ * (feature.eyeColor) plus a smaller pupil (feature.pupilColor) offset
+ * further out along the same left/right axis, so from the side the pupil
+ * reads as sitting on the iris's outer face rather than buried at its
+ * center — the classic painted crankbait eye look. Colors are set from the
+ * Paint tab (PaintSidebar.tsx), not here.
+ */
 function EyesMarker({ feature, girth, offset, selected }: MarkerProps) {
-  const radius = Math.max(girth * 0.06, 0.6);
+  const irisRadius = Math.max((feature.eyeSizeMm ?? girth * 0.12) / 2, 0.6);
+  const pupilRadius = irisRadius * 0.55;
   const [x, y, z] = toWorld(feature.position, offset);
+  const irisColor = selected ? '#ff5c39' : feature.eyeColor ?? '#f5c518';
+  const pupilColor = selected ? '#ff5c39' : feature.pupilColor ?? '#111111';
   return (
     <>
-      {[z, -z].map((zPos, i) => (
-        <mesh key={i} position={[x, y, zPos]}>
-          <sphereGeometry args={[radius, 16, 16]} />
-          <meshStandardMaterial
-            color={selected ? '#ff5c39' : '#111111'}
-            roughness={0.3}
-            metalness={0.4}
-          />
-        </mesh>
-      ))}
+      {[z, -z].map((zPos, i) => {
+        const outward = zPos >= 0 ? 1 : -1;
+        return (
+          <group key={i}>
+            <mesh position={[x, y, zPos]}>
+              <sphereGeometry args={[irisRadius, 16, 16]} />
+              <meshStandardMaterial color={irisColor} roughness={0.25} metalness={0.1} />
+            </mesh>
+            <mesh position={[x, y, zPos + outward * irisRadius * 0.6]}>
+              <sphereGeometry args={[pupilRadius, 12, 12]} />
+              <meshStandardMaterial color={pupilColor} roughness={0.15} metalness={0.4} />
+            </mesh>
+          </group>
+        );
+      })}
     </>
   );
 }
@@ -567,6 +585,105 @@ function SkirtMarker({ feature, offset, selected }: MarkerProps) {
   );
 }
 
+/**
+ * The trailing feather/marabou bundle on a dressed treble — literally the
+ * same strand-bundle pattern SkirtMarker uses above (WireStrut fanning out
+ * from a single point), just trailing along -Y (continuing past the hook
+ * points, the direction a real tied dressing streams in) instead of +X, and
+ * colored via dressingColor instead of skirtColor.
+ */
+function DressedTrebleFeathers({
+  dressingColor,
+  dressLengthMm,
+  selected,
+}: {
+  dressingColor: string;
+  dressLengthMm: number;
+  selected: boolean;
+}) {
+  const color = selected ? '#ff5c39' : dressingColor;
+  const material = <meshStandardMaterial color={color} roughness={0.7} metalness={0} side={THREE.DoubleSide} />;
+  const strandCount = 12;
+  const strands = useMemo(() => {
+    const list: { start: THREE.Vector3; end: THREE.Vector3 }[] = [];
+    for (let i = 0; i < strandCount; i++) {
+      const a = (i / strandCount) * Math.PI * 2;
+      const flare = dressLengthMm * 0.28;
+      list.push({
+        start: new THREE.Vector3(0, 0, 0),
+        end: new THREE.Vector3(Math.sin(a) * flare, -dressLengthMm, Math.cos(a) * flare),
+      });
+    }
+    return list;
+  }, [dressLengthMm]);
+
+  return (
+    <>
+      {strands.map((s, i) => (
+        <WireStrut key={i} a={s.start} b={s.end} radius={0.4} material={material} />
+      ))}
+    </>
+  );
+}
+
+/**
+ * A real hook (as opposed to hookHanger, the bare eyelet it hangs from) —
+ * single, treble, or a dressed treble. Built from utils/hookGeometry.ts's
+ * curved-tube tine (the same CatmullRomCurve3 + TubeGeometry technique
+ * SimulateView.tsx's FishingLine already uses), scaled from whichever size
+ * spec utils/hookSizes.ts's table resolves hookSizeLabel to. A treble is
+ * three tines 120° apart around one shared eye; dressedTreble adds
+ * DressedTrebleFeathers trailing past the points.
+ */
+function HookTieMarker({ feature, offset, selected }: MarkerProps) {
+  const style = feature.hookStyle ?? 'treble';
+  const finish = feature.hookFinish ?? 'bronze';
+  const sizes = hookSizesForStyle(style);
+  const size = sizes.find((s) => s.label === feature.hookSizeLabel) ?? sizes[Math.floor(sizes.length / 2)];
+  const [x, y, z] = toWorld(feature.position, offset);
+  const rot = feature.rotation ?? { x: 0, y: 0, z: 0 };
+  const rotRad: [number, number, number] = [
+    (rot.x * Math.PI) / 180,
+    (rot.y * Math.PI) / 180,
+    (rot.z * Math.PI) / 180,
+  ];
+  const color = selected ? '#ff5c39' : HOOK_FINISH_COLOR[finish];
+  const material = <meshStandardMaterial color={color} roughness={0.3} metalness={0.75} />;
+
+  const tineAngles = style === 'single' ? [0] : [0, 120, 240];
+  const geometries = useMemo(
+    () => tineAngles.map((angle) => buildHookTineGeometry(size.lengthMm, size.gapMm, angle)),
+    [style, size.lengthMm, size.gapMm],
+  );
+
+  const ringOuter = Math.max(size.gapMm * 0.12, 1);
+  const ringTube = ringOuter * 0.3;
+
+  return (
+    <group position={[x, y, z]} rotation={rotRad}>
+      {/* The eye every tine shares, oriented so its hole faces along the
+          shaft (Y) axis — the shaft passes through it, like a real
+          welded-eye hook, rather than lying flat like a line-tie ring. */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[ringOuter, ringTube, 8, 16]} />
+        {material}
+      </mesh>
+      {geometries.map((geo, i) => (
+        <mesh key={i} geometry={geo}>
+          {material}
+        </mesh>
+      ))}
+      {style === 'dressedTreble' && (
+        <DressedTrebleFeathers
+          dressingColor={feature.dressingColor ?? '#c8342f'}
+          dressLengthMm={size.lengthMm * 1.25}
+          selected={selected}
+        />
+      )}
+    </group>
+  );
+}
+
 interface MarkerProps {
   feature: Feature;
   girth: number;
@@ -641,6 +758,11 @@ export default function FeatureMarkers({ spin }: { spin?: SpinDriver } = {}) {
           if (feature.type === 'lip') {
             return (
               <LipMarker key={feature.id} feature={feature} girth={girth} offset={offset} selected={selected} />
+            );
+          }
+          if (feature.type === 'hookTie') {
+            return (
+              <HookTieMarker key={feature.id} feature={feature} girth={girth} offset={offset} selected={selected} />
             );
           }
           if (feature.type === 'decal') {

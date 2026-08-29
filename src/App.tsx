@@ -7,6 +7,8 @@ import Viewport3D from './components/Viewport3D';
 import SimulateView from './components/SimulateView';
 import ExportPanel from './components/ExportPanel';
 import SimulatePropertiesPanel from './components/SimulatePropertiesPanel';
+import PaintView from './components/PaintView';
+import PaintSidebar from './components/PaintSidebar';
 import LibraryView from './components/LibraryView';
 import ProfileEditorPanel from './components/ProfileEditor/ProfileEditorPanel';
 import { useAppStore } from './store/useAppStore';
@@ -38,6 +40,8 @@ function App() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {activeTab === 'simulate' ? (
               <SimulateView />
+            ) : activeTab === 'paint' ? (
+              <PaintView />
             ) : (
               <>
                 {activeTab === 'editor' && (
@@ -85,6 +89,8 @@ function App() {
             <ExportPanel />
           ) : activeTab === 'simulate' ? (
             <SimulatePropertiesPanel />
+          ) : activeTab === 'paint' ? (
+            <PaintSidebar />
           ) : (
             <RightSidebar />
           )}
