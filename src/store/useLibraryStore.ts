@@ -53,7 +53,13 @@ function applyProjectData(data: ProjectData) {
     retrieveAction: data.profile.retrieveAction ?? 'none',
     curves: data.profile.curves,
   });
-  useSegmentsStore.setState({ segments: data.segments, activeId: null });
+  useSegmentsStore.setState({
+    // Projects saved before Fase F (joint types) have segments with no
+    // `jointType` at all — default them to 'rigid', the old always-star-
+    // connected behavior, so they look unchanged on load.
+    segments: data.segments.map((s) => ({ ...s, jointType: s.jointType ?? 'rigid' })),
+    activeId: null,
+  });
   useFeatureStore.setState({ features: data.features, selectedId: null });
   // Projects saved before the Paint tab existed have no `paint` field at
   // all — fall back to usePaintStore's own defaults rather than leaving

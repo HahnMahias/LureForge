@@ -22,7 +22,17 @@ const TOOL_BUTTONS: { mode: Exclude<TransformMode, null>; label: string }[] = [
   { mode: 'scale', label: 'Size' },
 ];
 
-export default function Viewport3D() {
+export default function Viewport3D({
+  opaque,
+}: {
+  // LureBody normally turns translucent blue once the design has any
+  // features, so their markers stay visible through the hull while placing
+  // them in Editor — useful there, but Paint's whole point is showing what
+  // the lure actually looks like, so PaintView.tsx passes this to force the
+  // real paint colors instead of a blue-tinted preview. Same override
+  // SimulateView.tsx's own LureBody usage already relies on.
+  opaque?: boolean;
+} = {}) {
   const [transformMode, setTransformMode] = useState<TransformMode>(null);
   const meshRef = useRef<THREE.Mesh>(null!);
   const dimensions = useSceneStore((s) => s.dimensions);
@@ -102,7 +112,7 @@ export default function Viewport3D() {
             infiniteGrid
           />
 
-          <LureBody meshRef={meshRef} />
+          <LureBody meshRef={meshRef} opaque={opaque} />
           <FeatureMarkers />
           <PhysicsMarkers />
 

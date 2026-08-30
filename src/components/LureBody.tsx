@@ -15,6 +15,12 @@ import { createScaleTexture } from '../utils/scaleTexture';
 import { createPaintTexture } from '../utils/paintTexture';
 import { BODY_MATERIAL_DENSITY_G_CM3 } from '../utils/materials';
 import { spinAngularVelocityRadPerS } from '../utils/retrieveEffects';
+import {
+  jointSwingAngularVelocityRadPerS,
+  jointSwingYawOffsetRad,
+  jointSwingPitchOffsetRad,
+} from '../utils/jointEffects';
+import { subtractFinCavities } from '../utils/finGeometry';
 
 /**
  * Renders the procedural scale pattern as a bump-mapped overlay reusing the
@@ -174,6 +180,20 @@ export default function LureBody({
     [curves, length, girth, noseType, symmetric],
   );
 
+  // Fase E — 'separatePart' fins carve a matching cavity into the main
+  // body's own geometry (a real CSG subtract, not a visual overlap), so the
+  // live weight/buoyancy calc below and the printed STL both see the same
+  // hollowed-out body a separate printed insert would actually need. A
+  // no-op passthrough when there's no separate-part fin.
+  const separatePartFins = useMemo(
+    () => features.filter((f) => f.type === 'fin' && f.finOperation === 'separatePart' && f.visible),
+    [features],
+  );
+  const bodyGeometry = useMemo(
+    () => subtractFinCavities(mainResult.geometry, separatePartFins, mainResult.offset),
+    [mainResult, separatePartFins],
+  );
+
   const extraResults = useMemo(
     () =>
       extraSegments.map((seg) => ({
@@ -195,16 +215,16 @@ export default function LureBody({
       return { seg, result, groupX, groupY, jointX };
     });
 
-    const bodyMass = computeMeshVolumeAndCentroid(mainResult.geometry);
+    const bodyMass = computeMeshVolumeAndCentroid(bodyGeometry);
     let totalVolumeMm3 = bodyMass.volumeMm3;
-    const mainMaterialVolumeMm3 = computeFillAwareVolumeMm3(mainResult.geometry, bodyMass.volumeMm3, fill, wallThicknessMm);
+    const mainMaterialVolumeMm3 = computeFillAwareVolumeMm3(bodyGeometry, bodyMass.volumeMm3, fill, wallThicknessMm);
     const massParts: BodyMassPart[] = [
       { materialVolumeMm3: mainMaterialVolumeMm3, densityGCm3: BODY_MATERIAL_DENSITY_G_CM3[bodyMaterial] },
     ];
     const weightedCentroid = bodyMass.centroid.clone().multiplyScalar(bodyMass.volumeMm3);
 
-    mainResult.geometry.computeBoundingBox();
-    const box = mainResult.geometry.boundingBox!.clone();
+    bodyGeometry.computeBoundingBox();
+    const box = bodyGeometry.boundingBox!.clone();
 
     const placedWithVolume = placed.map((p) => {
       const localMass = computeMeshVolumeAndCentroid(p.result.geometry);
@@ -244,7 +264,7 @@ export default function LureBody({
         h: box.max.y - box.min.y,
       },
     };
-  }, [mainResult, extraResults, length, fill, wallThicknessMm, bodyMaterial]);
+  }, [mainResult, bodyGeometry, extraResults, length, fill, wallThicknessMm, bodyMaterial]);
 
   // Curve data for Simulate's buoyancy integration (utils/buoyancy.ts) — one
   // entry per lofted piece, in the same shared frame as assembly.placed's
@@ -309,6 +329,13 @@ export default function LureBody({
   // driven directly here without going through React state every frame.
   const spinPivotRefs = useRef<Map<string, THREE.Group>>(new Map());
   const spinAngles = useRef<Map<string, number>>(new Map());
+  // Joint swing (Fase F) — pivots at the joint itself (jointX), not the
+  // segment's own centerline, so a swinging segment fans out from its
+  // fixed "socket" rather than orbiting off-center. Only segments with a
+  // non-rigid jointType get animated; rigid ones are left untouched (their
+  // pivot group just sits at rotation 0, same as before this feature).
+  const jointPivotRefs = useRef<Map<string, THREE.Group>>(new Map());
+  const jointPhases = useRef<Map<string, number>>(new Map());
 
   useFrame((_, rawDelta) => {
     if (!spin || !spin.reelingRef.current) return;
@@ -323,18 +350,31 @@ export default function LureBody({
       spinAngles.current.set(p.seg.id, next);
       group.rotation.x = next;
     }
+
+    for (let chainIndex = 0; chainIndex < assembly.placed.length; chainIndex++) {
+      const p = assembly.placed[chainIndex];
+      if (p.seg.jointType === 'rigid') continue;
+      const group = jointPivotRefs.current.get(p.seg.id);
+      if (!group) continue;
+      const rate2 = jointSwingAngularVelocityRadPerS(spin.reelSpeedMmS * spin.speed, p.seg.jointType);
+      const amplitudeScale = 1 + chainIndex * 0.25;
+      const next = (jointPhases.current.get(p.seg.id) ?? 0) + rate2 * dt;
+      jointPhases.current.set(p.seg.id, next);
+      group.rotation.y = jointSwingYawOffsetRad(next, p.seg.jointType) * amplitudeScale;
+      group.rotation.x = jointSwingPitchOffsetRad(next, p.seg.jointType) * amplitudeScale;
+    }
   });
 
   return (
     <>
-      <mesh ref={meshRef} geometry={mainResult.geometry} castShadow receiveShadow>
+      <mesh ref={meshRef} geometry={bodyGeometry} castShadow receiveShadow>
         {material}
       </mesh>
       {scalesFeatures.map((feature) => (
         <ScalesOverlay
           key={feature.id}
           feature={feature}
-          geometry={mainResult.geometry}
+          geometry={bodyGeometry}
           offset={mainResult.offset}
           length={length}
           girth={girth}
@@ -344,25 +384,36 @@ export default function LureBody({
       ))}
       {assembly.placed.map(({ seg, result, groupX, groupY, jointX }) => (
         <group key={seg.id}>
-          {/* Pivoted at this segment's own centerline (mainResult.offset.y —
+          {/* Outer group pivots at the JOINT (jointX — where JointMarker
+              sits), for the Fase F swing (hinge/ball/flex tube). Inner group
+              pivots at this segment's own centerline (mainResult.offset.y —
               every segment's centerline is aligned to the main body's, see
-              the groupY comment above) so a "spinning tail" rolls in place
-              around its true length axis instead of orbiting off-center. */}
+              the groupY comment above) so a "spinning tail" still rolls in
+              place around its true length axis, independent of any joint
+              swing the outer group is doing. */}
           <group
             ref={(el) => {
-              if (el) spinPivotRefs.current.set(seg.id, el);
-              else spinPivotRefs.current.delete(seg.id);
+              if (el) jointPivotRefs.current.set(seg.id, el);
+              else jointPivotRefs.current.delete(seg.id);
             }}
-            position={[groupX, mainResult.offset.y, 0]}
+            position={[jointX, mainResult.offset.y, 0]}
           >
-            <mesh
-              geometry={result.geometry}
-              position={[0, groupY - mainResult.offset.y, 0]}
-              castShadow
-              receiveShadow
+            <group
+              ref={(el) => {
+                if (el) spinPivotRefs.current.set(seg.id, el);
+                else spinPivotRefs.current.delete(seg.id);
+              }}
+              position={[groupX - jointX, 0, 0]}
             >
-              {material}
-            </mesh>
+              <mesh
+                geometry={result.geometry}
+                position={[0, groupY - mainResult.offset.y, 0]}
+                castShadow
+                receiveShadow
+              >
+                {material}
+              </mesh>
+            </group>
           </group>
           <JointMarker
             x={jointX}

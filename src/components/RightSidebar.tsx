@@ -8,10 +8,11 @@ import {
   type BladeShape,
   type HookStyle,
   type HookFinish,
+  type Feature,
 } from '../store/useFeatureStore';
 import { useProfileStore } from '../store/useProfileStore';
 import type { BallastShape } from '../utils/meshVolume';
-import type { MetalType } from '../utils/materials';
+import { BODY_MATERIAL_LABELS, type MetalType, type BodyMaterial } from '../utils/materials';
 import { WIRE_FRAME_DEFS, WIRE_FRAME_STYLES, type WireFrameStyle } from '../data/wireFrameDefs';
 import { DECAL_PATTERNS, DECAL_PRESETS, type DecalPattern } from '../data/decalPresets';
 import { hookSizesForStyle, HOOK_FINISH_COLOR } from '../utils/hookSizes';
@@ -64,6 +65,15 @@ const HOOK_FINISH_LABELS: Record<HookFinish, string> = {
   nickel: 'Nickel',
   red: 'Red',
 };
+type FinOperation = NonNullable<Feature['finOperation']>;
+const FIN_OPERATIONS: FinOperation[] = ['add', 'cut', 'separatePart'];
+const FIN_OPERATION_LABELS: Record<FinOperation, string> = {
+  add: 'Add',
+  cut: 'Cut',
+  separatePart: 'Separate part',
+};
+const BODY_MATERIAL_OPTIONS: BodyMaterial[] = ['pla', 'balsa', 'abs', 'polycarbonate', 'pvc'];
+
 const SKIRT_COLOR_PRESETS: { value: string; label: string }[] = [
   { value: '#c8342f', label: 'Red' },
   { value: '#1c1c1e', label: 'Black' },
@@ -199,6 +209,7 @@ export default function RightSidebar() {
   const deleteFinPoint = useFeatureStore((s) => s.deleteFinPoint);
   const length = useProfileStore((s) => s.length);
   const girth = useProfileStore((s) => s.girth);
+  const bodyCurves = useProfileStore((s) => s.curves);
 
   const selected = features.find((f) => f.id === selectedId) ?? null;
 
@@ -460,12 +471,79 @@ export default function RightSidebar() {
               {selected.type === 'fin' && (
                 <>
                   <div>
+                    <SectionLabel>Operation</SectionLabel>
+                    <ChoiceRow
+                      options={FIN_OPERATIONS}
+                      value={selected.finOperation ?? 'add'}
+                      labels={FIN_OPERATION_LABELS}
+                      onChange={(finOperation) => updateFeature(selected.id, { finOperation })}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+                      {selected.finOperation === 'cut'
+                        ? 'Subtracted out of any Add fin drawn at (roughly) the same position — draw thin lines for grooves/ridges.'
+                        : selected.finOperation === 'separatePart'
+                          ? 'Carves a matching cavity into the main body and exports as its own STL, in its own material.'
+                          : 'The base fin shape — a Cut fin drawn at the same position subtracts from this one.'}
+                    </div>
+                  </div>
+
+                  {selected.finOperation === 'separatePart' && (
+                    <>
+                      <div>
+                        <SectionLabel>Part material</SectionLabel>
+                        <select
+                          value={selected.finPartMaterial ?? 'pla'}
+                          onChange={(e) => updateFeature(selected.id, { finPartMaterial: e.target.value as BodyMaterial })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            background: 'var(--bg-panel-raised)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 5,
+                            color: 'var(--text-primary)',
+                            fontSize: 13,
+                          }}
+                        >
+                          {BODY_MATERIAL_OPTIONS.map((m) => (
+                            <option key={m} value={m}>
+                              {BODY_MATERIAL_LABELS[m]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <SliderField
+                        label="Slot clearance"
+                        value={selected.finSlotClearanceMm ?? 0.1}
+                        min={0}
+                        max={1}
+                        step={0.02}
+                        onChange={(finSlotClearanceMm) => updateFeature(selected.id, { finSlotClearanceMm })}
+                      />
+                    </>
+                  )}
+
+                  <div>
                     <SectionLabel>Outline</SectionLabel>
                     <FinOutlineEditor
                       points={selected.finOutline ?? []}
                       onAdd={(p) => addFinPoint(selected.id, p)}
                       onUpdate={(i, p) => updateFinPoint(selected.id, i, p)}
                       onDelete={(i) => deleteFinPoint(selected.id, i)}
+                      referenceImage={selected.finReferenceImage}
+                      referenceImageRect={selected.finReferenceImageRect}
+                      onSetImage={(finReferenceImage, finReferenceImageRect) =>
+                        updateFeature(selected.id, { finReferenceImage, finReferenceImageRect })
+                      }
+                      onImageRectChange={(finReferenceImageRect) =>
+                        updateFeature(selected.id, { finReferenceImageRect })
+                      }
+                      onClearImage={() =>
+                        updateFeature(selected.id, { finReferenceImage: undefined, finReferenceImageRect: undefined })
+                      }
+                      bodySide={bodyCurves.side}
+                      bodySideMirror={bodyCurves.sideMirror}
+                      bodyOrigin={{ x: selected.position.x, y: selected.position.y }}
                     />
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
                       Click to add a point, drag to reposition, double-click to remove.
@@ -479,6 +557,25 @@ export default function RightSidebar() {
                     max={8}
                     step={0.1}
                     onChange={(finThickness) => updateFeature(selected.id, { finThickness })}
+                  />
+
+                  <SliderField
+                    label="Edge rounding"
+                    value={selected.finEdgeRoundingMm ?? 0}
+                    min={0}
+                    max={Math.max((selected.finThickness ?? 1.5) / 2 - 0.05, 0)}
+                    step={0.05}
+                    onChange={(finEdgeRoundingMm) => updateFeature(selected.id, { finEdgeRoundingMm })}
+                  />
+
+                  <SliderField
+                    label="Area thickness"
+                    value={selected.finAreaThicknessPct ?? 100}
+                    min={5}
+                    max={100}
+                    step={1}
+                    unit="%"
+                    onChange={(finAreaThicknessPct) => updateFeature(selected.id, { finAreaThicknessPct })}
                   />
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>

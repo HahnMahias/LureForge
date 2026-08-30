@@ -3,6 +3,12 @@ import type { Point2D } from '../utils/smoothPath';
 import type { NoseType, CurveKey, FillType, RetrieveAction } from './useProfileStore';
 import type { BodyMaterial } from '../utils/materials';
 
+// How this segment's joint to the PREVIOUS part behaves during "Reel in" —
+// see utils/jointEffects.ts for the actual swing math. 'rigid' (the
+// default) is exactly the old always-star-connected behavior, so existing
+// projects look unchanged after this field was added.
+export type JointType = 'rigid' | 'hinge' | 'ball' | 'flexTube';
+
 // Extra body segments strung on after the main body (from useProfileStore)
 // to build a jointed lure. Each segment is a fully independent little body
 // with its own profile curves, so it keeps exactly the same data shape as
@@ -18,6 +24,7 @@ export interface ExtraSegment {
   wallThicknessMm: number;
   material: BodyMaterial;
   retrieveAction: RetrieveAction;
+  jointType: JointType;
   curves: Record<CurveKey, Point2D[]>;
 }
 
@@ -65,6 +72,7 @@ function makeDefaultSegment(name: string): ExtraSegment {
     wallThicknessMm: 2,
     material: 'pla',
     retrieveAction: 'none',
+    jointType: 'rigid',
     curves: {
       side: clonePoints(points),
       sideMirror: clonePoints(points),
@@ -90,6 +98,7 @@ interface SegmentsState {
   setWallThicknessMm: (id: string, mm: number) => void;
   setMaterial: (id: string, m: BodyMaterial) => void;
   setRetrieveAction: (id: string, a: RetrieveAction) => void;
+  setJointType: (id: string, t: JointType) => void;
   addPoint: (id: string, key: CurveKey, point: Point2D) => void;
   updatePoint: (id: string, key: CurveKey, index: number, point: Point2D) => void;
   deletePoint: (id: string, key: CurveKey, index: number) => void;
@@ -186,6 +195,10 @@ export const useSegmentsStore = create<SegmentsState>((set, get) => ({
 
   setRetrieveAction: (id, a) => {
     set({ segments: updateSegment(get().segments, id, (s) => ({ ...s, retrieveAction: a })) });
+  },
+
+  setJointType: (id, t) => {
+    set({ segments: updateSegment(get().segments, id, (s) => ({ ...s, jointType: t })) });
   },
 
   addPoint: (id, key, point) => {

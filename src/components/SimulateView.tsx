@@ -319,7 +319,7 @@ function CameraFollow({
 // LureRig's reelAnchorRef for how a held retrieve chains many of these legs
 // back to back instead of freezing after the first one.
 export const LINE_LENGTH_MIN_MM = 100;
-export const LINE_LENGTH_MAX_MM = 700;
+export const LINE_LENGTH_MAX_MM = 1400;
 
 // Standing in for an angler positioned to one side — always screen-right of
 // wherever the lure currently is (originX/originZ), not a fixed tank
@@ -560,7 +560,12 @@ function LureRig({
 
   useFrame((_, rawDelta) => {
     const st = dragState.current;
-    const dt = Math.min(rawDelta, 0.1) * speed; // clamp huge frame gaps (tab switches etc.), Speed slider applies here too
+    // Clamp huge frame gaps (tab switches etc.). Speed no longer scales dt
+    // itself — that used to speed up sink/drift/Current/Playback even when
+    // not reeling. Speed now only scales the explicit reel-in motion below
+    // (hStep, the vertical rise, and the wobble/roll rates that already
+    // multiplied REEL_SPEED_MMS * speed directly).
+    const dt = Math.min(rawDelta, 0.1);
 
     // Re-point the reel-in target — screen-right of wherever the lure is AT
     // THIS MOMENT — in two cases: right as "Reel in" starts being held
@@ -625,13 +630,13 @@ function LureRig({
         // curved retrieve path (level-ish start, climbing near the anchor)
         // instead of a straight diagonal line.
         if (horizontalDist > 1e-6) {
-          const hStep = Math.min(REEL_SPEED_MMS * dt, horizontalDist);
+          const hStep = Math.min(REEL_SPEED_MMS * speed * dt, horizontalDist);
           st.x += (dx / horizontalDist) * hStep;
           st.z += (dz / horizontalDist) * hStep;
         }
         const closeness = 1 - THREE.MathUtils.clamp(horizontalDist / reelCurveSpanMm, 0, 1);
         const riseRate = REEL_VERTICAL_BASE_RATE + closeness * REEL_VERTICAL_BOOST_RATE;
-        st.y += dy * (1 - Math.exp(-riseRate * dt));
+        st.y += dy * (1 - Math.exp(-riseRate * speed * dt));
 
         // Face the direction of travel: solveReelOrientation (reelOrientation.ts)
         // finds the (yaw, pitch) that makes NOSE_LOCAL_DIRECTION point along

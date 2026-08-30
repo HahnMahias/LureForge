@@ -8,22 +8,18 @@ import { useFeatureStore, type Feature, type LipShape, type BladeShape } from '.
 import type { MetalType } from '../utils/materials';
 import { WIRE_FRAME_DEFS, type WirePoint } from '../data/wireFrameDefs';
 import { DECAL_PRESETS } from '../data/decalPresets';
-import { sampleClosedCurve } from '../utils/curveMath';
 import { computeSurfacePlacement } from '../utils/surfacePlacement';
 import type { LureCurves } from '../utils/generateLureMesh';
 import { spinAngularVelocityRadPerS } from '../utils/retrieveEffects';
 import { hookSizesForStyle, HOOK_FINISH_COLOR } from '../utils/hookSizes';
 import { buildHookTineGeometry } from '../utils/hookGeometry';
+import { toWorld, buildFinLocalGeometry, groupFinClusters, buildFinClusterGeometry, type FinCluster } from '../utils/finGeometry';
 
 const METAL_COLOR: Record<MetalType, string> = {
   lead: '#5b5d63',
   tungsten: '#2b2b2e',
   steel: '#b8bcc4',
 };
-
-function toWorld(pos: { x: number; y: number; z: number }, offset: { x: number; y: number }) {
-  return [pos.x - offset.x, pos.y + offset.y, pos.z] as [number, number, number];
-}
 
 /**
  * Each eye is two nested spheres, not one flat-black bead: a larger iris
@@ -216,8 +212,6 @@ function WireFrameMarker({ feature, length, girth, offset, selected }: MarkerPro
 }
 
 function FinMarker({ feature, offset, selected }: MarkerProps) {
-  const outline = feature.finOutline ?? [];
-  const thickness = feature.finThickness ?? 1.5;
   const mirror = feature.finMirror ?? false;
   const [x, y, z] = toWorld(feature.position, offset);
   const rot = feature.rotation ?? { x: 0, y: 0, z: 0 };
@@ -227,15 +221,10 @@ function FinMarker({ feature, offset, selected }: MarkerProps) {
     (rot.z * Math.PI) / 180,
   ];
 
-  const geometry = useMemo(() => {
-    if (outline.length < 3) return null;
-    const smoothed = sampleClosedCurve(outline, 8);
-    const shape = new THREE.Shape(smoothed.map((p) => new THREE.Vector2(p.x, p.y)));
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
-    geo.translate(0, 0, -thickness / 2);
-    geo.computeVertexNormals();
-    return geo;
-  }, [outline, thickness]);
+  const geometry = useMemo(
+    () => buildFinLocalGeometry(feature),
+    [feature.finOutline, feature.finThickness, feature.finEdgeRoundingMm, feature.finAreaThicknessPct],
+  );
 
   if (!geometry) return null;
 
@@ -255,6 +244,55 @@ function FinMarker({ feature, offset, selected }: MarkerProps) {
           <group position={[x, y, z]} rotation={rotRad}>
             <mesh geometry={geometry}>{material}</mesh>
           </group>
+        </group>
+      )}
+    </>
+  );
+}
+
+/**
+ * Fase D — renders a cluster of co-located fin features as one real CSG
+ * result (Add fins unioned, then every Cut fin subtracted out — see
+ * utils/finGeometry.ts) instead of each fin drawing its own separate mesh.
+ * Only used for clusters that actually contain a Cut fin; a plain single
+ * fin (or several overlapping Add fins with no Cut) still goes through
+ * FinMarker above, unchanged.
+ */
+function FinClusterMarker({
+  cluster,
+  offset,
+  selectedId,
+}: {
+  cluster: FinCluster;
+  offset: { x: number; y: number };
+  selectedId: string | null;
+}) {
+  const primary = cluster.adds[0];
+  const mirror = primary.finMirror ?? false;
+  const selected =
+    cluster.adds.some((f) => f.id === selectedId) || cluster.cuts.some((f) => f.id === selectedId);
+
+  const geometry = useMemo(
+    () => buildFinClusterGeometry(cluster, offset),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cluster, offset],
+  );
+
+  if (!geometry) return null;
+
+  const color = selected ? '#ff5c39' : '#3a3f47';
+  const material = <meshStandardMaterial color={color} roughness={0.5} metalness={0.1} side={THREE.DoubleSide} />;
+
+  return (
+    <>
+      {/* Cluster geometry is already positioned in the shared body-local
+          frame (buildFinClusterGeometry bakes each fin's own position/
+          rotation into the CSG brushes before evaluating) — no outer
+          position/rotation group needed here, unlike plain FinMarker. */}
+      <mesh geometry={geometry}>{material}</mesh>
+      {mirror && (
+        <group scale={[1, 1, -1]}>
+          <mesh geometry={geometry}>{material}</mesh>
         </group>
       )}
     </>
@@ -700,6 +738,12 @@ export default function FeatureMarkers({ spin }: { spin?: SpinDriver } = {}) {
   const symmetric = useProfileStore((s) => s.symmetric);
   const offset = useSceneStore((s) => s.bodyOffset);
 
+  // Fase D — group fins by position so a Cut fin can subtract from the Add
+  // fin(s) it's drawn over (see groupFinClusters). Only clusters with a Cut
+  // fin need the CSG path below; everything else renders exactly as it
+  // always has.
+  const finClusters = useMemo(() => groupFinClusters(features), [features]);
+
   return (
     <>
       {features
@@ -734,6 +778,15 @@ export default function FeatureMarkers({ spin }: { spin?: SpinDriver } = {}) {
             );
           }
           if (feature.type === 'fin') {
+            const op = feature.finOperation ?? 'add';
+            if (op === 'cut') return null; // rendered only as part of its cluster below
+            const cluster = finClusters.find((c) => c.adds.includes(feature));
+            if (cluster && cluster.cuts.length > 0) {
+              if (cluster.adds[0].id !== feature.id) return null; // primary Add renders the whole cluster
+              return (
+                <FinClusterMarker key={feature.id} cluster={cluster} offset={offset} selectedId={selectedId} />
+              );
+            }
             return (
               <FinMarker key={feature.id} feature={feature} girth={girth} offset={offset} selected={selected} />
             );

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useProfileStore, type NoseType, type CurveKey, type FillType, type RetrieveAction } from '../../store/useProfileStore';
-import { useSegmentsStore } from '../../store/useSegmentsStore';
+import { useSegmentsStore, type JointType } from '../../store/useSegmentsStore';
 import { useReferenceImageStore } from '../../store/useReferenceImageStore';
 import { useFeatureStore } from '../../store/useFeatureStore';
 import { useExportStore } from '../../store/useExportStore';
@@ -18,6 +18,20 @@ const VIEW_TABS: { id: ProfileView; label: string }[] = [
   { id: 'side', label: 'Side view' },
   { id: 'front', label: 'Front view' },
 ];
+
+const JOINT_TYPES: JointType[] = ['rigid', 'hinge', 'ball', 'flexTube'];
+const JOINT_TYPE_LABELS: Record<JointType, string> = {
+  rigid: 'Rigid',
+  hinge: 'Hinge',
+  ball: 'Ball',
+  flexTube: 'Flex tube',
+};
+const JOINT_TYPE_HELP: Record<JointType, string> = {
+  rigid: 'Rigid: star verbonden, geen eigen beweging.',
+  hinge: 'Hinge: zwaait heen en weer in één vlak — de klassieke S-vormige zwem-actie.',
+  ball: 'Ball: zwaait vrij in een kegel — losser, meer natuurlijke lag.',
+  flexTube: 'Flex tube: zacht/soepel, grootste uitslag, blijft na-zwiepen.',
+};
 
 function NumberField({
   label,
@@ -117,6 +131,7 @@ export default function ProfileEditorPanel() {
   const segSetWallThicknessMm = useSegmentsStore((s) => s.setWallThicknessMm);
   const segSetMaterial = useSegmentsStore((s) => s.setMaterial);
   const segSetRetrieveAction = useSegmentsStore((s) => s.setRetrieveAction);
+  const segSetJointType = useSegmentsStore((s) => s.setJointType);
   const segAddPoint = useSegmentsStore((s) => s.addPoint);
   const segUpdatePoint = useSegmentsStore((s) => s.updatePoint);
   const segDeletePoint = useSegmentsStore((s) => s.deletePoint);
@@ -230,6 +245,7 @@ export default function ProfileEditorPanel() {
   const addFinPoint = useFeatureStore((s) => s.addFinPoint);
   const updateFinPoint = useFeatureStore((s) => s.updateFinPoint);
   const deleteFinPoint = useFeatureStore((s) => s.deleteFinPoint);
+  const updateFeature = useFeatureStore((s) => s.updateFeature);
 
   const selectedFeature = features.find((f) => f.id === selectedFeatureId);
 
@@ -279,6 +295,20 @@ export default function ProfileEditorPanel() {
               onAdd={(p) => addFinPoint(selectedFeature.id, p)}
               onUpdate={(i, p) => updateFinPoint(selectedFeature.id, i, p)}
               onDelete={(i) => deleteFinPoint(selectedFeature.id, i)}
+              referenceImage={selectedFeature.finReferenceImage}
+              referenceImageRect={selectedFeature.finReferenceImageRect}
+              onSetImage={(finReferenceImage, finReferenceImageRect) =>
+                updateFeature(selectedFeature.id, { finReferenceImage, finReferenceImageRect })
+              }
+              onImageRectChange={(finReferenceImageRect) =>
+                updateFeature(selectedFeature.id, { finReferenceImageRect })
+              }
+              onClearImage={() =>
+                updateFeature(selectedFeature.id, { finReferenceImage: undefined, finReferenceImageRect: undefined })
+              }
+              bodySide={mainCurves.side}
+              bodySideMirror={mainCurves.sideMirror}
+              bodyOrigin={{ x: selectedFeature.position.x, y: selectedFeature.position.y }}
             />
           </div>
         </div>
@@ -468,6 +498,25 @@ export default function ProfileEditorPanel() {
             </span>
           )}
         </div>
+
+        {activeSegment && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Joint type</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {JOINT_TYPES.map((t) => (
+                <ToggleButton
+                  key={t}
+                  label={JOINT_TYPE_LABELS[t]}
+                  active={activeSegment.jointType === t}
+                  onClick={() => segSetJointType(activeSegment.id, t)}
+                />
+              ))}
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', maxWidth: 220 }}>
+              {JOINT_TYPE_HELP[activeSegment.jointType]}
+            </span>
+          </div>
+        )}
 
         {activeView === 'side' && !activeSegment && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

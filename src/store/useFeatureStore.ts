@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useProfileStore } from './useProfileStore';
 import type { BallastShape } from '../utils/meshVolume';
-import type { MetalType } from '../utils/materials';
+import type { MetalType, BodyMaterial } from '../utils/materials';
 import type { WireFrameStyle } from '../data/wireFrameDefs';
 import type { DecalPattern } from '../data/decalPresets';
 import type { Point2D } from '../utils/smoothPath';
@@ -71,6 +71,25 @@ export interface Feature {
   finOutline?: Point2D[];
   finThickness?: number;
   finMirror?: boolean;
+  // Fase A — an uploaded reference photo (e.g. a real fin close-up) traced
+  // over in FinOutlineEditor. Data-URL, same pattern as
+  // useReferenceImageStore's body-photo upload. The rect lives in the same
+  // local mm space as finOutline so a traced shape lines up 1:1 with it.
+  finReferenceImage?: string;
+  finReferenceImageRect?: { x: number; y: number; width: number; height: number };
+  // Fase C — edge rounding (bevel) and hollow-shell wall thickness,
+  // expressed as a percentage of finThickness (100% = solid).
+  finEdgeRoundingMm?: number;
+  finAreaThicknessPct?: number;
+  // Fase D/E — how this fin combines with other fins at (roughly) the same
+  // position (see utils/finGeometry.ts's groupFinClusters): 'add' (default)
+  // renders/exports normally; 'cut' is subtracted from the 'add' fin(s) in
+  // its cluster (real CSG boolean, not just visual overlap) instead of
+  // rendering on its own; 'separatePart' additionally carves a matching
+  // cavity into the main body and exports as its own STL/material.
+  finOperation?: 'add' | 'cut' | 'separatePart';
+  finPartMaterial?: BodyMaterial;
+  finSlotClearanceMm?: number;
   // Decal-only properties.
   decalPattern?: DecalPattern;
   decalStyle?: DecalStyle;
@@ -225,6 +244,11 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
             finOutline: DEFAULT_FIN_OUTLINE.map((p) => ({ ...p })),
             finThickness: 1.5,
             finMirror: false,
+            finEdgeRoundingMm: 0,
+            finAreaThicknessPct: 100,
+            finOperation: 'add' as const,
+            finPartMaterial: 'pla' as BodyMaterial,
+            finSlotClearanceMm: 0.1,
           }
         : {}),
       ...(type === 'decal'

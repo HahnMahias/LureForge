@@ -13,6 +13,8 @@ import { buildLureGeometry } from '../utils/generateLureMesh';
 import { hollowGeometry } from '../utils/meshShell';
 import { sliceGeometryAtZ0 } from '../utils/meshSlice';
 import { buildStlArrayBuffer, downloadStl } from '../utils/stlExport';
+import { groupFinClusters, buildFinClusterGeometry, subtractFinCavities } from '../utils/finGeometry';
+import { BODY_MATERIAL_LABELS } from '../utils/materials';
 import { computeTotalWeightG, classifyFloat, type FloatClass } from '../utils/physics';
 import { WATER_DENSITY_G_CM3 } from '../utils/physics';
 import { computeSurfacePlacement } from '../utils/surfacePlacement';
@@ -224,12 +226,10 @@ export default function ExportPanel() {
     try {
       // Decals (see FeatureMarkers.tsx's DecalMarker) are visual-only —
       // even with "Engraved" fill selected, they're a separate floating
-      // mesh, not a boolean cut into the body. Real geometry
-      // engraving/embossing would need a CSG library (e.g. three-bvh-csg)
-      // this project doesn't have yet. Scales (LureBody.tsx's
+      // mesh, not a boolean cut into the body. Scales (LureBody.tsx's
       // ScalesOverlay) are likewise a bump-mapped rendering effect only.
-      // STL export below only ever uses the plain lofted body geometry, so
-      // neither decals nor scales appear in the file.
+      // Neither appear in the file. Fins DO now appear (Fase D/E, via
+      // three-bvh-csg) — see the fin export loop below.
       const parts = [
         { name: 'lure-body', curves, length, girth, noseType, symmetric, fill: mainFill },
         ...extraSegments.map((seg, i) => ({
@@ -243,14 +243,27 @@ export default function ExportPanel() {
         })),
       ];
 
-      for (const part of parts) {
-        const { geometry } = buildLureGeometry(
+      // Fase E — 'separatePart' fins carve a cavity into the main body,
+      // same as LureBody.tsx's live 3D view, so the printed body actually
+      // has the slot the separate insert needs.
+      const separatePartFins = features.filter(
+        (f) => f.type === 'fin' && f.finOperation === 'separatePart' && f.visible,
+      );
+      let mainBodyOffset = { x: 0, y: 0 };
+
+      for (const [partIndex, part] of parts.entries()) {
+        const { geometry: loftedGeometry, offset } = buildLureGeometry(
           part.curves,
           part.length,
           part.girth,
           part.noseType,
           part.symmetric,
         );
+        const isMainBody = partIndex === 0;
+        if (isMainBody) mainBodyOffset = offset;
+        const geometry = isMainBody
+          ? subtractFinCavities(loftedGeometry, separatePartFins, offset)
+          : loftedGeometry;
         // Only shell a part that's actually marked Hollow, so the printed
         // file never disagrees with the live weight/buoyancy assumption —
         // a Solid part prints as the plain solid outer geometry.
@@ -263,6 +276,27 @@ export default function ExportPanel() {
         } else {
           downloadStl(`${part.name}.stl`, buildStlArrayBuffer(printGeometry));
         }
+      }
+
+      // Fase D/E — fins export as their own STL part(s): every Add fin
+      // unioned with the other Add fins at its position and Cut fins
+      // subtracted out (utils/finGeometry.ts's buildFinClusterGeometry —
+      // the same CSG result FeatureMarkers.tsx's FinClusterMarker renders
+      // live), so grooves and other cut detail actually show up in the
+      // print, not just on screen. A 'separatePart' fin exports under its
+      // own material name, alongside (not merged into) the main body.
+      const finClusters = groupFinClusters(features.filter((f) => f.visible));
+      const slug = (name: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      for (const cluster of finClusters) {
+        if (cluster.adds.length === 0) continue; // lone Cut with nothing to cut into — no-op
+        const geometry = buildFinClusterGeometry(cluster, mainBodyOffset);
+        if (!geometry) continue;
+        const primary = cluster.adds[0];
+        const isSeparate = cluster.adds.some((f) => f.finOperation === 'separatePart');
+        const suffix = isSeparate
+          ? `-separate-part-${BODY_MATERIAL_LABELS[primary.finPartMaterial ?? 'pla'].toLowerCase()}`
+          : '';
+        downloadStl(`${slug(primary.name)}${suffix}.stl`, buildStlArrayBuffer(geometry));
       }
     } finally {
       setExporting(false);
