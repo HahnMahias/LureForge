@@ -724,29 +724,46 @@ function HookTieMarker({ feature, offset, selected, spin }: MarkerProps & { spin
   const ringOuter = Math.max(size.gapMm * 0.12, 1);
   const ringTube = ringOuter * 0.3;
 
+  // The mount orientation as a quaternion — a fixed basis regardless of how
+  // rotRad is composed. Every frame we multiply the sway quaternion in
+  // AFTER (to the right of) this basis, so the swing always happens around
+  // the hook's own local X/Z axes (perpendicular to its local -Y hang axis
+  // — see hookGeometry.ts), independent of which way rotRad points that
+  // hang axis in world space. Adding sway as Euler angles onto rotRad (the
+  // previous approach) only stays perpendicular to the hang axis as long as
+  // rotRad itself has no Y component — for a tail-mounted hook pointing
+  // backward (a spoon's trailing hook, say), that assumption breaks: the
+  // swing axis ends up nearly parallel to the hang direction, so the hook
+  // technically rotates but the visible swing is almost nothing.
+  const baseQuat = useMemo(
+    () => new THREE.Quaternion().setFromEuler(new THREE.Euler(rotRad[0], rotRad[1], rotRad[2])),
+    [rotRad[0], rotRad[1], rotRad[2]],
+  );
+
   // A hook is rigid metal, but it dangles a little as a whole from its
   // hanging eye while reeling — unlike spinning-tail/joint swing, which
   // freeze in place when Reel in is released, a dangling hook should settle
   // back to its rest pose, so the reset branch below explicitly re-applies
-  // rotRad instead of just returning early.
+  // baseQuat instead of just returning early.
   const groupRef = useRef<THREE.Group>(null!);
   const phase = useRef(0);
 
   useFrame((_, rawDelta) => {
     if (!groupRef.current) return;
     if (!spin || !spin.reelingRef.current) {
-      groupRef.current.rotation.set(rotRad[0], rotRad[1], rotRad[2]);
+      groupRef.current.quaternion.copy(baseQuat);
       return;
     }
     const dt = Math.min(rawDelta, 0.1);
     const rate = swayAngularVelocityRadPerS(spin.reelSpeedMmS * spin.speed, 'hookDangle');
     phase.current += rate * dt;
     const sway = swayOffsetRad(phase.current, 'hookDangle');
-    groupRef.current.rotation.set(rotRad[0] + sway, rotRad[1], rotRad[2] + sway * 0.6);
+    const swayQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(sway, 0, sway * 0.6));
+    groupRef.current.quaternion.copy(baseQuat).multiply(swayQuat);
   });
 
   return (
-    <group ref={groupRef} position={[x, y, z]} rotation={rotRad}>
+    <group ref={groupRef} position={[x, y, z]} quaternion={baseQuat}>
       {/* The eye every tine shares, oriented so its hole faces along the
           shaft (Y) axis — the shaft passes through it, like a real
           welded-eye hook, rather than lying flat like a line-tie ring. */}
