@@ -7,21 +7,22 @@ import * as THREE from 'three';
  */
 export type SwayKind = 'skirtStrand' | 'hookDangle';
 
-// Amplitudes bumped up from an initial 16deg/9deg pass, which read as
-// essentially motionless at normal viewing distance — a hook/skirt is a
-// small part of the whole scene, so a subtle rotation there translates to
-// only a couple of screen pixels of visible movement. These are large
-// enough to be unmistakable even zoomed out.
+// Second bump: live instrumentation (temporarily added to HookTieMarker's
+// useFrame, then removed) confirmed the previous 20deg pass genuinely
+// applied a real ~16deg quaternion swing to the hook's Object3D during a
+// held Reel in — the rotation itself was never the bug. A hook/dressing is
+// a small part relative to the whole rig, and the whole rig is already
+// pitching/diving/rolling a lot more dramatically during Reel in, which can
+// bury a modest local wobble. Going bigger so it reads clearly even
+// alongside that larger motion, rather than tuning blind again.
 const SWAY_AMPLITUDE_RAD: Record<SwayKind, number> = {
   skirtStrand: THREE.MathUtils.degToRad(34),
-  hookDangle: THREE.MathUtils.degToRad(20),
+  hookDangle: THREE.MathUtils.degToRad(38),
 };
 
-// Slower than the initial pass too — a fast wag blurs into a jitter at
-// normal frame capture; a slower sweep reads clearly as a wave/dangle.
 const SWAY_FREQ_PER_MMS: Record<SwayKind, number> = {
   skirtStrand: 0.018,
-  hookDangle: 0.012,
+  hookDangle: 0.018,
 };
 
 export function swayAngularVelocityRadPerS(reelSpeedMmS: number, kind: SwayKind): number {
