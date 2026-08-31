@@ -7,14 +7,21 @@ import * as THREE from 'three';
  */
 export type SwayKind = 'skirtStrand' | 'hookDangle';
 
+// Amplitudes bumped up from an initial 16deg/9deg pass, which read as
+// essentially motionless at normal viewing distance — a hook/skirt is a
+// small part of the whole scene, so a subtle rotation there translates to
+// only a couple of screen pixels of visible movement. These are large
+// enough to be unmistakable even zoomed out.
 const SWAY_AMPLITUDE_RAD: Record<SwayKind, number> = {
-  skirtStrand: THREE.MathUtils.degToRad(16),
-  hookDangle: THREE.MathUtils.degToRad(9),
+  skirtStrand: THREE.MathUtils.degToRad(34),
+  hookDangle: THREE.MathUtils.degToRad(20),
 };
 
+// Slower than the initial pass too — a fast wag blurs into a jitter at
+// normal frame capture; a slower sweep reads clearly as a wave/dangle.
 const SWAY_FREQ_PER_MMS: Record<SwayKind, number> = {
-  skirtStrand: 0.03,
-  hookDangle: 0.02,
+  skirtStrand: 0.018,
+  hookDangle: 0.012,
 };
 
 export function swayAngularVelocityRadPerS(reelSpeedMmS: number, kind: SwayKind): number {

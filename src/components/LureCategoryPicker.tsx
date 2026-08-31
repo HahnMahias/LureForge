@@ -76,9 +76,10 @@ export default function LureCategoryPicker({
                   padding: 0,
                   borderRadius: 8,
                   border: '1px solid var(--border-subtle)',
-                  background: photo
+                  backgroundColor: photo ? undefined : 'var(--bg-panel)',
+                  backgroundImage: photo
                     ? `linear-gradient(180deg, rgba(0,0,0,0.05), rgba(0,0,0,0.55)), url(${photo})`
-                    : 'var(--bg-panel)',
+                    : undefined,
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
                   cursor: 'pointer',
