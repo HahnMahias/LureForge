@@ -14,6 +14,7 @@ import { spinAngularVelocityRadPerS } from '../utils/retrieveEffects';
 import { hookSizesForStyle, HOOK_FINISH_COLOR } from '../utils/hookSizes';
 import { buildHookTineGeometry } from '../utils/hookGeometry';
 import { toWorld, buildFinLocalGeometry, groupFinClusters, buildFinClusterGeometry, type FinCluster } from '../utils/finGeometry';
+import { swayAngularVelocityRadPerS, swayOffsetRad } from '../utils/swayEffects';
 
 const METAL_COLOR: Record<MetalType, string> = {
   lead: '#5b5d63',
@@ -175,7 +176,7 @@ function WireFrameMarker({ feature, length, girth, offset, selected }: MarkerPro
   const style = feature.wireFrameStyle ?? 'throughWire';
   const def = WIRE_FRAME_DEFS[style];
   const amplitude = girth * 0.35;
-  const wireRadius = Math.max(girth * 0.022, 0.3);
+  const wireRadius = feature.wireThicknessMm ?? Math.max(girth * 0.022, 0.3);
   const ringOuter = Math.max(girth * 0.07, 0.9);
   const ringTube = ringOuter * 0.3;
   const color = selected ? '#ff5c39' : '#c9ccd1';
@@ -563,7 +564,10 @@ function SpinnerBladeMarker({
 
   useFrame((_, rawDelta) => {
     if (!spin || !spin.reelingRef.current || !spinGroupRef.current) return;
-    const dt = Math.min(rawDelta, 0.1) * spin.speed;
+    // spin.speed already applies once inside spinAngularVelocityRadPerS's
+    // own reelSpeedMmS * spin.speed — multiplying it into dt too applied it
+    // twice (quadratically). Same fix as SimulateView.tsx/LureBody.tsx.
+    const dt = Math.min(rawDelta, 0.1);
     if (dt <= 0) return;
     const rate = spinAngularVelocityRadPerS(spin.reelSpeedMmS * spin.speed);
     spinGroupRef.current.rotation.y += rate * dt;
@@ -591,7 +595,7 @@ function SpinnerBladeMarker({
   );
 }
 
-function SkirtMarker({ feature, offset, selected }: MarkerProps) {
+function SkirtMarker({ feature, offset, selected, spin }: MarkerProps & { spin?: SpinDriver }) {
   const color = selected ? '#ff5c39' : feature.skirtColor ?? '#c8342f';
   const lengthMm = feature.skirtLengthMm ?? 40;
   const [x, y, z] = toWorld(feature.position, offset);
@@ -614,10 +618,33 @@ function SkirtMarker({ feature, offset, selected }: MarkerProps) {
     return list;
   }, [strandCount, lengthMm]);
 
+  // Each strand pivots at its own base (the skirt's mount point, local
+  // origin) so it waves independently while reeling — a per-strand phase
+  // offset (its own angle in the bundle) keeps the bundle from swinging as
+  // one rigid fan. Freezes the instant Reel in is released, same as
+  // spinning-tail/joint swing.
+  const strandRefs = useRef<(THREE.Group | null)[]>([]);
+  const phase = useRef(0);
+
+  useFrame((_, rawDelta) => {
+    if (!spin || !spin.reelingRef.current) return;
+    const dt = Math.min(rawDelta, 0.1);
+    const rate = swayAngularVelocityRadPerS(spin.reelSpeedMmS * spin.speed, 'skirtStrand');
+    phase.current += rate * dt;
+    strands.forEach((_, i) => {
+      const g = strandRefs.current[i];
+      if (!g) return;
+      const strandPhaseOffset = (i / strandCount) * Math.PI * 2;
+      g.rotation.z = swayOffsetRad(phase.current, 'skirtStrand', strandPhaseOffset);
+    });
+  });
+
   return (
     <group position={[x, y, z]}>
       {strands.map((s, i) => (
-        <WireStrut key={i} a={s.start} b={s.end} radius={0.5} material={material} />
+        <group key={i} ref={(el) => { strandRefs.current[i] = el; }}>
+          <WireStrut a={s.start} b={s.end} radius={0.5} material={material} />
+        </group>
       ))}
     </group>
   );
@@ -673,7 +700,7 @@ function DressedTrebleFeathers({
  * three tines 120° apart around one shared eye; dressedTreble adds
  * DressedTrebleFeathers trailing past the points.
  */
-function HookTieMarker({ feature, offset, selected }: MarkerProps) {
+function HookTieMarker({ feature, offset, selected, spin }: MarkerProps & { spin?: SpinDriver }) {
   const style = feature.hookStyle ?? 'treble';
   const finish = feature.hookFinish ?? 'bronze';
   const sizes = hookSizesForStyle(style);
@@ -697,8 +724,29 @@ function HookTieMarker({ feature, offset, selected }: MarkerProps) {
   const ringOuter = Math.max(size.gapMm * 0.12, 1);
   const ringTube = ringOuter * 0.3;
 
+  // A hook is rigid metal, but it dangles a little as a whole from its
+  // hanging eye while reeling — unlike spinning-tail/joint swing, which
+  // freeze in place when Reel in is released, a dangling hook should settle
+  // back to its rest pose, so the reset branch below explicitly re-applies
+  // rotRad instead of just returning early.
+  const groupRef = useRef<THREE.Group>(null!);
+  const phase = useRef(0);
+
+  useFrame((_, rawDelta) => {
+    if (!groupRef.current) return;
+    if (!spin || !spin.reelingRef.current) {
+      groupRef.current.rotation.set(rotRad[0], rotRad[1], rotRad[2]);
+      return;
+    }
+    const dt = Math.min(rawDelta, 0.1);
+    const rate = swayAngularVelocityRadPerS(spin.reelSpeedMmS * spin.speed, 'hookDangle');
+    phase.current += rate * dt;
+    const sway = swayOffsetRad(phase.current, 'hookDangle');
+    groupRef.current.rotation.set(rotRad[0] + sway, rotRad[1], rotRad[2] + sway * 0.6);
+  });
+
   return (
-    <group position={[x, y, z]} rotation={rotRad}>
+    <group ref={groupRef} position={[x, y, z]} rotation={rotRad}>
       {/* The eye every tine shares, oriented so its hole faces along the
           shaft (Y) axis — the shaft passes through it, like a real
           welded-eye hook, rather than lying flat like a line-tie ring. */}
@@ -805,7 +853,14 @@ export default function FeatureMarkers({ spin }: { spin?: SpinDriver } = {}) {
           }
           if (feature.type === 'skirt') {
             return (
-              <SkirtMarker key={feature.id} feature={feature} girth={girth} offset={offset} selected={selected} />
+              <SkirtMarker
+                key={feature.id}
+                feature={feature}
+                girth={girth}
+                offset={offset}
+                selected={selected}
+                spin={spin}
+              />
             );
           }
           if (feature.type === 'lip') {
@@ -815,7 +870,14 @@ export default function FeatureMarkers({ spin }: { spin?: SpinDriver } = {}) {
           }
           if (feature.type === 'hookTie') {
             return (
-              <HookTieMarker key={feature.id} feature={feature} girth={girth} offset={offset} selected={selected} />
+              <HookTieMarker
+                key={feature.id}
+                feature={feature}
+                girth={girth}
+                offset={offset}
+                selected={selected}
+                spin={spin}
+              />
             );
           }
           if (feature.type === 'decal') {

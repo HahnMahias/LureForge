@@ -65,8 +65,12 @@ export interface Feature {
   metal?: MetalType;
   holdingPocket?: boolean;
   ballastClearanceMm?: number;
-  // Wire-frame-only property.
+  // Wire-frame-only properties. wireThicknessMm left unset by default so
+  // existing/new wires keep falling back to the girth-scaled formula in
+  // FeatureMarkers.tsx's WireFrameMarker — only set once the user actually
+  // drags the slider.
   wireFrameStyle?: WireFrameStyle;
+  wireThicknessMm?: number;
   // Fin-only properties.
   finOutline?: Point2D[];
   finThickness?: number;

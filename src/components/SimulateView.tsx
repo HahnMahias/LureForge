@@ -27,6 +27,9 @@ import TrajectorySparkline from './TrajectorySparkline';
 import ConditionsPanel from './ConditionsPanel';
 import { useConditionsStore, type CurrentLevel } from '../store/useConditionsStore';
 import { lightBrightness, visibilityForLight, currentDriftMmPerS } from '../utils/conditionsEffects';
+import { useLibraryStore } from '../store/useLibraryStore';
+import { startRecording, stopRecording } from '../utils/simulationRecorder';
+import { saveRecording } from '../utils/recordingStorage';
 
 const CAMERA_FOV_DEG = 45;
 // The viewing direction stays fixed regardless of tank size — only the
@@ -865,6 +868,66 @@ function ReelInButton({ reelingRef, playback }: { reelingRef: RefObject<boolean>
 }
 
 /**
+ * Fase C — screen-records the Simulate canvas (canvas.captureStream() +
+ * MediaRecorder, see utils/simulationRecorder.ts) and saves the clip to
+ * IndexedDB (utils/recordingStorage.ts) tagged to the currently-open
+ * project. A recording can only ever belong to a saved project, so starting
+ * one is blocked (with an inline prompt) until currentProjectId exists —
+ * i.e. until the lure has been saved at least once via the top bar's Save.
+ */
+function RecordButton() {
+  const currentProjectId = useLibraryStore((s) => s.currentProjectId);
+  const [recording, setRecording] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+
+  const handleClick = async () => {
+    if (recording) {
+      const recorder = recorderRef.current;
+      recorderRef.current = null;
+      setRecording(false);
+      if (!recorder) return;
+      const blob = await stopRecording(recorder);
+      if (currentProjectId) await saveRecording(currentProjectId, blob);
+      return;
+    }
+    if (!currentProjectId) {
+      setShowSavePrompt(true);
+      window.setTimeout(() => setShowSavePrompt(false), 3500);
+      return;
+    }
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+    recorderRef.current = startRecording(canvas);
+    setRecording(true);
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <button
+        onClick={handleClick}
+        style={{
+          padding: '6px 14px',
+          borderRadius: 6,
+          border: '1px solid ' + (recording ? '#e5484d' : 'var(--border-subtle)'),
+          background: recording ? 'rgba(229,72,77,0.15)' : 'transparent',
+          color: recording ? '#f2777a' : 'var(--text-secondary)',
+          fontSize: 12,
+          fontWeight: 600,
+        }}
+      >
+        {recording ? '⏺ Stop recording' : '⏺ Record'}
+      </button>
+      {showSavePrompt && (
+        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+          Save this lure first (top bar) — recordings are saved to a project.
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * Fase B's "Path" toggle: a visual trace of the precomputed recording
  * (Fase C) — since that recording only models the passive drop/settle
  * (x=z=0 throughout, see simulateTrajectory.ts), this is a vertical
@@ -990,6 +1053,7 @@ export default function SimulateView() {
         <WeightBadge water={waterType} style={{ position: 'static', transform: 'none' }} />
 
         <ReelInButton reelingRef={reelingRef} playback={playback} />
+        <RecordButton />
 
         {/* How far one "Reel in" haul travels before the next one picks up
             — see getAnglerAnchor's own comment for why this can't just be

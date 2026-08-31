@@ -79,11 +79,25 @@ function ToggleButton({
   );
 }
 
-export default function NewLureWizard({ onClose }: { onClose: () => void }) {
+export default function NewLureWizard({
+  onClose,
+  initialPresetId,
+  categoryOverride,
+}: {
+  onClose: () => void;
+  // Set when arriving from LureCategoryPicker's "Start blank in this
+  // category" — preselects the closest-matching preset (see
+  // data/lureCategories.ts's LURE_CATEGORY_PRESET_ID) instead of always
+  // starting on the first preset in the list.
+  initialPresetId?: string;
+  // Tags the created lure with the catalog category instead of the shape
+  // preset's own label (e.g. "Poppers" instead of "Popper") when set.
+  categoryOverride?: string;
+}) {
   const setActiveTab = useAppStore((s) => s.setActiveTab);
 
   const [step, setStep] = useState<Step>('type');
-  const [presetId, setPresetId] = useState<string>(LURE_PRESETS[0].id);
+  const [presetId, setPresetId] = useState<string>(initialPresetId ?? LURE_PRESETS[0].id);
   const preset = useMemo<LurePreset>(
     () => LURE_PRESETS.find((p) => p.id === presetId) ?? LURE_PRESETS[0],
     [presetId],
@@ -185,7 +199,7 @@ export default function NewLureWizard({ onClose }: { onClose: () => void }) {
       // Tags this lure with its starting preset (Jerkbait, Minnow, ...) so
       // Fase G's Library sidebar can filter by type later — "Blank" isn't a
       // real lure type, so it's tagged as "Custom" like a from-scratch design.
-      currentLureType: preset.id === 'blank' ? 'Custom' : preset.label,
+      currentLureType: categoryOverride ?? (preset.id === 'blank' ? 'Custom' : preset.label),
     });
     setActiveTab('editor');
     onClose();

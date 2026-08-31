@@ -342,33 +342,44 @@ export default function RightSidebar() {
               </label>
             </>
           ) : selected.type === 'wireFrame' ? (
-            <div>
-              <SectionLabel>Style</SectionLabel>
-              <select
-                value={selected.wireFrameStyle ?? 'throughWire'}
-                onChange={(e) =>
-                  updateFeature(selected.id, { wireFrameStyle: e.target.value as WireFrameStyle })
-                }
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  background: 'var(--bg-panel-raised)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 5,
-                  color: 'var(--text-primary)',
-                  fontSize: 13,
-                }}
-              >
-                {WIRE_FRAME_STYLES.map((style) => (
-                  <option key={style} value={style}>
-                    {WIRE_FRAME_DEFS[style].label}
-                  </option>
-                ))}
-              </select>
-              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.5 }}>
-                {WIRE_FRAME_DEFS[selected.wireFrameStyle ?? 'throughWire'].description}
+            <>
+              <div>
+                <SectionLabel>Style</SectionLabel>
+                <select
+                  value={selected.wireFrameStyle ?? 'throughWire'}
+                  onChange={(e) =>
+                    updateFeature(selected.id, { wireFrameStyle: e.target.value as WireFrameStyle })
+                  }
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    background: 'var(--bg-panel-raised)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 5,
+                    color: 'var(--text-primary)',
+                    fontSize: 13,
+                  }}
+                >
+                  {WIRE_FRAME_STYLES.map((style) => (
+                    <option key={style} value={style}>
+                      {WIRE_FRAME_DEFS[style].label}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.5 }}>
+                  {WIRE_FRAME_DEFS[selected.wireFrameStyle ?? 'throughWire'].description}
+                </div>
               </div>
-            </div>
+
+              <SliderField
+                label="Wire thickness"
+                value={selected.wireThicknessMm ?? Math.max(girth * 0.022, 0.3)}
+                min={0.2}
+                max={3}
+                step={0.05}
+                onChange={(wireThicknessMm) => updateFeature(selected.id, { wireThicknessMm })}
+              />
+            </>
           ) : selected.type === 'scales' ? (
             <>
               <div>

@@ -339,7 +339,11 @@ export default function LureBody({
 
   useFrame((_, rawDelta) => {
     if (!spin || !spin.reelingRef.current) return;
-    const dt = Math.min(rawDelta, 0.1) * spin.speed;
+    // spin.speed already applies once, inside each *AngularVelocityRadPerS
+    // call below (reelSpeedMmS * spin.speed) — multiplying it into dt too
+    // applied it twice (quadratically): at Speed=2x this spun/swung 4x
+    // instead of 2x. Same fix as SimulateView.tsx's own dt already got.
+    const dt = Math.min(rawDelta, 0.1);
     if (dt <= 0) return;
     const rate = spinAngularVelocityRadPerS(spin.reelSpeedMmS * spin.speed);
     for (const p of assembly.placed) {

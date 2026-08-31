@@ -74,7 +74,8 @@ export default function Viewport3D({
         <Canvas
           shadows
           camera={{ position: [220, 160, 220], fov: 45, near: 1, far: 5000 }}
-          gl={{ preserveDrawingBuffer: true, localClippingEnabled: true }}
+          gl={{ antialias: true, preserveDrawingBuffer: true, localClippingEnabled: true }}
+          dpr={[1, 2]}
         >
           <color attach="background" args={['#0a0a0b']} />
           {/*
@@ -98,18 +99,22 @@ export default function Viewport3D({
           <directionalLight position={[-180, 120, 100]} intensity={0.45} />
           <directionalLight position={[-40, 160, -260]} intensity={0.6} />
 
+          {/* Sized to roughly the working area rather than an effectively
+              infinite plane — args/fadeDistance scaled down from the
+              original 1000x1000+infiniteGrid, which shimmered/moiréd on
+              cells seen edge-on far from the lure (a plane that large next
+              to a ~100-300mm subject is mostly sub-pixel aliasing). */}
           <Grid
             position={[0, 0, 0]}
-            args={[1000, 1000]}
+            args={[400, 400]}
             cellSize={10}
             cellThickness={0.5}
             cellColor="#2a2a2f"
             sectionSize={100}
             sectionThickness={1}
             sectionColor="#3f3f46"
-            fadeDistance={800}
+            fadeDistance={350}
             fadeStrength={1}
-            infiniteGrid
           />
 
           <LureBody meshRef={meshRef} opaque={opaque} />

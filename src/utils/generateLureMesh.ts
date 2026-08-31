@@ -83,6 +83,11 @@ export function buildLureGeometry(
 
   const ring = buildRingTemplate(curves.front, symmetric ? curves.front : curves.frontMirror, girth);
   const ringLen = ring.length;
+  // +1 duplicated seam vertex per ring — see the loop below for why: without
+  // it, the closing triangle's UV-v jumps from ~1 straight back to 0,
+  // sampling the whole belly->back->belly gradient (paintTexture.ts) across
+  // one thin sliver at the belly centerline instead of wrapping cleanly.
+  const stride = ringLen + 1;
 
   const positions: number[] = [];
   const uvs: number[] = [];
@@ -107,14 +112,25 @@ export function buildLureGeometry(
       positions.push(x, y, z);
       uvs.push(u, j / ringLen);
     }
+    // Duplicate ring point 0 (belly) with v=1 instead of v=0, so the seam
+    // triangle interpolates from ~0.93 to 1.0 (a small, correct step within
+    // the belly color) instead of ~0.93 back to 0.0 (which samples straight
+    // through the back color in the middle of the gradient).
+    const seam = ring[0];
+    const seamVerticalR = seam.v >= 0 ? upR : downR;
+    const seamHorizontalR = seam.sign >= 0 ? rightR : leftR;
+    positions.push(x, seam.v * seamVerticalR, seam.sign * seam.hNorm * seamHorizontalR);
+    uvs.push(u, 1);
   }
 
   for (let i = 0; i < LENGTH_STEPS - 1; i++) {
     for (let j = 0; j < ringLen; j++) {
-      const a = i * ringLen + j;
-      const b = i * ringLen + ((j + 1) % ringLen);
-      const c = (i + 1) * ringLen + j;
-      const d = (i + 1) * ringLen + ((j + 1) % ringLen);
+      // The last segment wraps to the duplicated seam vertex, not back to 0.
+      const jNext = j + 1 === ringLen ? ringLen : j + 1;
+      const a = i * stride + j;
+      const b = i * stride + jNext;
+      const c = (i + 1) * stride + j;
+      const d = (i + 1) * stride + jNext;
       indices.push(a, c, b, b, c, d);
     }
   }

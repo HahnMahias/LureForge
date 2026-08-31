@@ -154,6 +154,7 @@ export default function ExportPanel() {
   const perimeterWalls = useExportStore((s) => s.perimeterWalls);
   const infill = useExportStore((s) => s.infill);
   const printInTwoHalves = useExportStore((s) => s.printInTwoHalves);
+  const printHalfTwice = useExportStore((s) => s.printHalfTwice);
   const nozzleWidthMm = useExportStore((s) => s.nozzleWidthMm);
   const layerHeightMm = useExportStore((s) => s.layerHeightMm);
   const printSpeedMms = useExportStore((s) => s.printSpeedMms);
@@ -163,6 +164,7 @@ export default function ExportPanel() {
   const setPerimeterWalls = useExportStore((s) => s.setPerimeterWalls);
   const setInfill = useExportStore((s) => s.setInfill);
   const setPrintInTwoHalves = useExportStore((s) => s.setPrintInTwoHalves);
+  const setPrintHalfTwice = useExportStore((s) => s.setPrintHalfTwice);
   const setNozzleWidthMm = useExportStore((s) => s.setNozzleWidthMm);
   const setLayerHeightMm = useExportStore((s) => s.setLayerHeightMm);
   const setPrintSpeedMms = useExportStore((s) => s.setPrintSpeedMms);
@@ -273,6 +275,13 @@ export default function ExportPanel() {
           const { left, right } = sliceGeometryAtZ0(printGeometry);
           downloadStl(`${part.name}-right.stl`, buildStlArrayBuffer(right));
           downloadStl(`${part.name}-left.stl`, buildStlArrayBuffer(left));
+        } else if (printHalfTwice) {
+          // One file, meant to be printed twice and glued (the second copy
+          // flipped 180° to stand in for the other half) — only exactly
+          // correct for a top/bottom-symmetric design, see the warning text
+          // next to the checkbox above.
+          const { right } = sliceGeometryAtZ0(printGeometry);
+          downloadStl(`${part.name}-half-2x-print.stl`, buildStlArrayBuffer(right));
         } else {
           downloadStl(`${part.name}.stl`, buildStlArrayBuffer(printGeometry));
         }
@@ -438,6 +447,21 @@ export default function ExportPanel() {
               />
               Print in two halves
             </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={printHalfTwice}
+                onChange={(e) => setPrintHalfTwice(e.target.checked)}
+              />
+              One half (print 2x and glue)
+            </label>
+            {printHalfTwice && (
+              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                Only matches exactly for a top/bottom-symmetric design (back = belly shape) — for an
+                asymmetric profile, &ldquo;Print in two halves&rdquo; fits better.
+              </span>
+            )}
           </>
         )}
 
